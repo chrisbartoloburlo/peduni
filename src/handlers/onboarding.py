@@ -96,7 +96,7 @@ async def handle_setup_message(update: Update, context: ContextTypes.DEFAULT_TYP
     return False
 
 
-async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def change_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     async with SessionLocal() as session:
