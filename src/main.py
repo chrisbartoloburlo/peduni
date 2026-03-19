@@ -8,7 +8,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 from .config import settings
 from .db import init_db
 from .handlers.documents import handle_document
-from .handlers.onboarding import start
+from .handlers.onboarding import start, settings
 from .handlers.queries import handle_text
 from .web import web_app
 
@@ -23,6 +23,7 @@ async def main():
     # Telegram bot
     bot = ApplicationBuilder().token(settings.telegram_token).build()
     bot.add_handler(CommandHandler("start", start))
+    bot.add_handler(CommandHandler("settings", settings))
     bot.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_document))
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 

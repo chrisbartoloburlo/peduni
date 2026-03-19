@@ -6,6 +6,7 @@ from ..crypto import encrypt
 from ..db import SessionLocal, User
 
 PROVIDERS = {"anthropic", "openai", "gemini"}
+PROVIDER_NAMES = {"anthropic": "Anthropic (Claude)", "openai": "OpenAI", "gemini": "Google Gemini"}
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,9 +61,8 @@ async def handle_setup_message(update: Update, context: ContextTypes.DEFAULT_TYP
             user.ai_provider = text
             user.setup_step = "awaiting_api_key"
             await session.commit()
-            provider_names = {"anthropic": "Anthropic (Claude)", "openai": "OpenAI", "gemini": "Google Gemini"}
             await update.message.reply_text(
-                f"Great, using {provider_names[text]}.\n\n"
+                f"Great, using {PROVIDER_NAMES[text]}.\n\n"
                 "Now paste your API key. I'll encrypt it and it won't be visible to anyone.\n"
                 "(The message will be deleted after I read it.)"
             )
@@ -94,3 +94,26 @@ async def handle_setup_message(update: Update, context: ContextTypes.DEFAULT_TYP
         return True
 
     return False
+
+
+async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    async with SessionLocal() as session:
+        user = await session.get(User, user_id)
+        if not user or user.setup_step != "ready":
+            await update.message.reply_text("Please complete setup first with /start.")
+            return
+
+        current = PROVIDER_NAMES.get(user.ai_provider, user.ai_provider)
+        user.setup_step = "awaiting_provider"
+        await session.commit()
+
+    await update.message.reply_text(
+        f"Current AI provider: {current}\n\n"
+        "Which provider would you like to switch to?\n"
+        "• anthropic\n"
+        "• openai\n"
+        "• gemini\n\n"
+        "Reply with the provider name, then I'll ask for your new API key."
+    )
