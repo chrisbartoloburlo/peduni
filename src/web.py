@@ -1,6 +1,6 @@
 import json
 
-import httpx
+import httpx  # used as async client only
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from google_auth_oauthlib.flow import Flow
@@ -50,49 +50,48 @@ async def start_auth(telegram_user_id: int):
 
 
 @web_app.get("/auth/callback")
-def oauth_callback(code: str, state: str):
-    """Sync endpoint — google-auth-oauthlib is synchronous."""
+async def oauth_callback(code: str, state: str):
     telegram_user_id = int(state)
 
-    flow = _make_flow(state=state)
-    code_verifier = _code_verifiers.pop(telegram_user_id, None)
-    if code_verifier:
-        flow.code_verifier = code_verifier
-    flow.fetch_token(code=code)
+    # google-auth-oauthlib is blocking — run in thread pool
+    def fetch_tokens():
+        flow = _make_flow(state=state)
+        code_verifier = _code_verifiers.pop(telegram_user_id, None)
+        if code_verifier:
+            flow.code_verifier = code_verifier
+        flow.fetch_token(code=code)
+        return flow.credentials
 
-    creds = flow.credentials
+    import asyncio
+    creds = await asyncio.get_event_loop().run_in_executor(None, fetch_tokens)
+
     token_data = {
         "token": creds.token,
         "refresh_token": creds.refresh_token,
         "scopes": list(creds.scopes) if creds.scopes else [],
     }
 
-    import asyncio
+    async with SessionLocal() as session:
+        user = await session.get(User, telegram_user_id)
+        if user:
+            user.google_tokens = encrypt(json.dumps(token_data))
+            user.setup_step = "awaiting_provider"
+            await session.commit()
 
-    async def _update_db():
-        async with SessionLocal() as session:
-            user = await session.get(User, telegram_user_id)
-            if user:
-                user.google_tokens = encrypt(json.dumps(token_data))
-                user.setup_step = "awaiting_provider"
-                await session.commit()
-
-    asyncio.run(_update_db())
-
-    # Notify the user in Telegram
-    httpx.post(
-        f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage",
-        json={
-            "chat_id": telegram_user_id,
-            "text": (
-                "✅ Google Drive connected!\n\n"
-                "Now choose your AI provider. Reply with one of:\n"
-                "• anthropic\n"
-                "• openai\n"
-                "• gemini"
-            ),
-        },
-    )
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage",
+            json={
+                "chat_id": telegram_user_id,
+                "text": (
+                    "✅ Google Drive connected!\n\n"
+                    "Now choose your AI provider. Reply with one of:\n"
+                    "• anthropic\n"
+                    "• openai\n"
+                    "• gemini"
+                ),
+            },
+        )
 
     return HTMLResponse("""
         <html>
