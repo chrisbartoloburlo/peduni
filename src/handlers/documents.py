@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 
 from ..ai import extract_expense
 from ..db import Expense, SessionLocal, User
-from ..drive import ensure_folder, upload_file
+from ..drive import ensure_root_folder, upload_file
 from .onboarding import handle_setup_message
 
 MIME_FALLBACK = "application/octet-stream"
@@ -45,24 +45,29 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_content = await tg_file.download_as_bytearray()
         file_bytes = bytes(file_content)
 
-        # Upload to Google Drive (blocking I/O — run in thread)
-        folder_id = user.drive_folder_id
-        if not folder_id:
-            folder_id = await asyncio.get_event_loop().run_in_executor(
-                None, ensure_folder, user.google_tokens
-            )
-            user.drive_folder_id = folder_id
-            await session.commit()
-
-        drive_file_id = await asyncio.get_event_loop().run_in_executor(
-            None, upload_file, user.google_tokens, folder_id, filename, file_bytes, mime_type
-        )
-
-        # Extract expense data with AI
+        # Extract expense data with AI first so we know the invoice date
         try:
             data = await extract_expense(user.ai_api_key, user.ai_provider, file_bytes, mime_type, filename)
         except Exception as e:
             data = {"merchant": None, "amount": None, "currency": None, "date": None, "category": None, "raw_text": str(e)}
+
+        # Use invoice date for folder if available, otherwise fall back to today
+        invoice_date = data.get("date")
+        try:
+            month_str = datetime.strptime(invoice_date, "%Y-%m-%d").strftime("%Y-%m")
+        except (TypeError, ValueError):
+            month_str = datetime.utcnow().strftime("%Y-%m")
+
+        # Upload to Google Drive (blocking I/O — run in thread)
+        if not user.drive_folder_id:
+            user.drive_folder_id = await asyncio.get_event_loop().run_in_executor(
+                None, ensure_root_folder, user.google_tokens
+            )
+            await session.commit()
+
+        drive_file_id = await asyncio.get_event_loop().run_in_executor(
+            None, upload_file, user.google_tokens, user.drive_folder_id, month_str, filename, file_bytes, mime_type
+        )
 
         # Save to DB
         expense = Expense(
