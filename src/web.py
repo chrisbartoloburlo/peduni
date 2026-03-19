@@ -13,6 +13,9 @@ web_app = FastAPI()
 
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
+# Temporary store for PKCE code verifiers between auth start and callback
+_code_verifiers: dict[int, str] = {}
+
 GOOGLE_CLIENT_CONFIG = {
     "web": {
         "client_id": settings.google_client_id,
@@ -34,14 +37,15 @@ def _make_flow(state: str | None = None) -> Flow:
 
 @web_app.get("/auth/google/{telegram_user_id}")
 async def start_auth(telegram_user_id: int):
+    from fastapi.responses import RedirectResponse
     flow = _make_flow(state=str(telegram_user_id))
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
     )
-    # Redirect directly to Google
-    from fastapi.responses import RedirectResponse
+    if flow.code_verifier:
+        _code_verifiers[telegram_user_id] = flow.code_verifier
     return RedirectResponse(url=auth_url)
 
 
@@ -51,6 +55,9 @@ def oauth_callback(code: str, state: str):
     telegram_user_id = int(state)
 
     flow = _make_flow(state=state)
+    code_verifier = _code_verifiers.pop(telegram_user_id, None)
+    if code_verifier:
+        flow.code_verifier = code_verifier
     flow.fetch_token(code=code)
 
     creds = flow.credentials
