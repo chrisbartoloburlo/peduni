@@ -9,6 +9,7 @@ PROVIDER_MODELS = {
     "anthropic": "claude-sonnet-4-6",
     "openai": "gpt-4o",
     "gemini": "gemini/gemini-2.0-flash",
+    "openrouter": "openrouter/google/gemini-2.0-flash-001",
 }
 
 EXTRACT_PROMPT = """Extract expense information from this document/receipt/invoice.

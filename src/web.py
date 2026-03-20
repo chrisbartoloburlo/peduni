@@ -1,8 +1,13 @@
+import asyncio
+import base64
+import hashlib
 import json
+import os
+import secrets
 
-import httpx  # used as async client only
+import httpx
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from google_auth_oauthlib.flow import Flow
 
 from .config import settings
@@ -11,10 +16,11 @@ from .db import SessionLocal, User
 
 web_app = FastAPI()
 
-SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+GOOGLE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
-# Temporary store for PKCE code verifiers between auth start and callback
-_code_verifiers: dict[int, str] = {}
+# PKCE verifier stores (telegram_user_id -> verifier string)
+_google_verifiers: dict[int, str] = {}
+_or_verifiers: dict[int, str] = {}
 
 GOOGLE_CLIENT_CONFIG = {
     "web": {
@@ -25,46 +31,57 @@ GOOGLE_CLIENT_CONFIG = {
     }
 }
 
+AI_SETUP_MESSAGE = {
+    "text": (
+        "✅ Google Drive connected!\n\n"
+        "Now let's connect your AI. OpenRouter gives you access to Claude, GPT-4, Gemini and more with one account:"
+    ),
+    "reply_markup": json.dumps({
+        "inline_keyboard": [
+            [{"text": "Connect OpenRouter (recommended)", "url": f"{settings.base_url}/auth/openrouter/{{user_id}}"}],
+            [{"text": "Use my own API key instead", "callback_data": "use_own_key"}],
+        ]
+    }),
+}
 
-def _make_flow(state: str | None = None) -> Flow:
+
+# ── Google OAuth ──────────────────────────────────────────────────────────────
+
+def _make_google_flow(state: str | None = None) -> Flow:
     return Flow.from_client_config(
         GOOGLE_CLIENT_CONFIG,
-        scopes=SCOPES,
+        scopes=GOOGLE_SCOPES,
         state=state,
         redirect_uri=f"{settings.base_url}/auth/callback",
     )
 
 
 @web_app.get("/auth/google/{telegram_user_id}")
-async def start_auth(telegram_user_id: int):
-    from fastapi.responses import RedirectResponse
-    flow = _make_flow(state=str(telegram_user_id))
+async def google_start(telegram_user_id: int):
+    flow = _make_google_flow(state=str(telegram_user_id))
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
     )
     if flow.code_verifier:
-        _code_verifiers[telegram_user_id] = flow.code_verifier
+        _google_verifiers[telegram_user_id] = flow.code_verifier
     return RedirectResponse(url=auth_url)
 
 
 @web_app.get("/auth/callback")
-async def oauth_callback(code: str, state: str):
+async def google_callback(code: str, state: str):
     telegram_user_id = int(state)
 
-    # google-auth-oauthlib is blocking — run in thread pool
     def fetch_tokens():
-        flow = _make_flow(state=state)
-        code_verifier = _code_verifiers.pop(telegram_user_id, None)
-        if code_verifier:
-            flow.code_verifier = code_verifier
+        flow = _make_google_flow(state=state)
+        verifier = _google_verifiers.pop(telegram_user_id, None)
+        if verifier:
+            flow.code_verifier = verifier
         flow.fetch_token(code=code)
         return flow.credentials
 
-    import asyncio
     creds = await asyncio.get_event_loop().run_in_executor(None, fetch_tokens)
-
     token_data = {
         "token": creds.token,
         "refresh_token": creds.refresh_token,
@@ -75,9 +92,10 @@ async def oauth_callback(code: str, state: str):
         user = await session.get(User, telegram_user_id)
         if user:
             user.google_tokens = encrypt(json.dumps(token_data))
-            user.setup_step = "awaiting_provider"
+            user.setup_step = "awaiting_ai_setup"
             await session.commit()
 
+    or_url = f"{settings.base_url}/auth/openrouter/{telegram_user_id}"
     async with httpx.AsyncClient() as client:
         await client.post(
             f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage",
@@ -85,11 +103,14 @@ async def oauth_callback(code: str, state: str):
                 "chat_id": telegram_user_id,
                 "text": (
                     "✅ Google Drive connected!\n\n"
-                    "Now choose your AI provider. Reply with one of:\n"
-                    "• anthropic\n"
-                    "• openai\n"
-                    "• gemini"
+                    "Now let's connect your AI. OpenRouter gives you access to Claude, GPT-4, Gemini and more with one account:"
                 ),
+                "reply_markup": json.dumps({
+                    "inline_keyboard": [
+                        [{"text": "Connect OpenRouter (recommended)", "url": or_url}],
+                        [{"text": "Use my own API key instead", "callback_data": "use_own_key"}],
+                    ]
+                }),
             },
         )
 
@@ -98,6 +119,76 @@ async def oauth_callback(code: str, state: str):
         <body style="font-family: sans-serif; text-align: center; padding: 60px;">
             <h2>Google Drive connected!</h2>
             <p>Go back to Telegram to finish setup.</p>
+        </body>
+        </html>
+    """)
+
+
+# ── OpenRouter OAuth (PKCE) ───────────────────────────────────────────────────
+
+def _pkce_pair() -> tuple[str, str]:
+    """Generate (code_verifier, code_challenge) for PKCE."""
+    verifier = secrets.token_urlsafe(64)
+    digest = hashlib.sha256(verifier.encode()).digest()
+    challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+    return verifier, challenge
+
+
+@web_app.get("/auth/openrouter/{telegram_user_id}")
+async def openrouter_start(telegram_user_id: int):
+    verifier, challenge = _pkce_pair()
+    _or_verifiers[telegram_user_id] = verifier
+    callback_url = f"{settings.base_url}/auth/openrouter/callback?state={telegram_user_id}"
+    auth_url = (
+        f"https://openrouter.ai/auth"
+        f"?callback_url={callback_url}"
+        f"&code_challenge={challenge}"
+        f"&code_challenge_method=S256"
+    )
+    return RedirectResponse(url=auth_url)
+
+
+@web_app.get("/auth/openrouter/callback")
+async def openrouter_callback(code: str, state: str):
+    telegram_user_id = int(state)
+    verifier = _or_verifiers.pop(telegram_user_id, None)
+
+    # Exchange code for API key
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://openrouter.ai/api/v1/auth/keys",
+            json={"code": code, "code_verifier": verifier},
+        )
+        resp.raise_for_status()
+        api_key = resp.json()["key"]
+
+    async with SessionLocal() as session:
+        user = await session.get(User, telegram_user_id)
+        if user:
+            user.ai_provider = "openrouter"
+            user.ai_api_key = encrypt(api_key)
+            user.setup_step = "ready"
+            await session.commit()
+
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage",
+            json={
+                "chat_id": telegram_user_id,
+                "text": (
+                    "✅ All set! OpenRouter connected.\n\n"
+                    "You can now:\n"
+                    "• Send me receipts, invoices, or screenshots\n"
+                    "• Ask questions like \"how much did I spend on food this month?\""
+                ),
+            },
+        )
+
+    return HTMLResponse("""
+        <html>
+        <body style="font-family: sans-serif; text-align: center; padding: 60px;">
+            <h2>OpenRouter connected!</h2>
+            <p>Go back to Telegram — you're all set.</p>
         </body>
         </html>
     """)

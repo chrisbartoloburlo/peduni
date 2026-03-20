@@ -3,12 +3,12 @@ import logging
 import os
 
 import uvicorn
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 from .config import settings
 from .db import init_db
 from .handlers.documents import handle_document
-from .handlers.onboarding import start, change_settings
+from .handlers.onboarding import start, change_settings, handle_callback
 from .handlers.queries import handle_text
 from .web import web_app
 
@@ -24,6 +24,7 @@ async def main():
     bot = ApplicationBuilder().token(settings.telegram_token).build()
     bot.add_handler(CommandHandler("start", start))
     bot.add_handler(CommandHandler("settings", change_settings))
+    bot.add_handler(CallbackQueryHandler(handle_callback))
     bot.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_document))
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 

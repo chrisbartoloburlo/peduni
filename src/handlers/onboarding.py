@@ -6,7 +6,22 @@ from ..crypto import encrypt
 from ..db import SessionLocal, User
 
 PROVIDERS = {"anthropic", "openai", "gemini"}
-PROVIDER_NAMES = {"anthropic": "Anthropic (Claude)", "openai": "OpenAI", "gemini": "Google Gemini"}
+PROVIDER_NAMES = {
+    "anthropic": "Anthropic (Claude)",
+    "openai": "OpenAI",
+    "gemini": "Google Gemini",
+    "openrouter": "OpenRouter",
+}
+
+
+def _ai_setup_markup(user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "Connect OpenRouter (recommended)",
+            url=f"{settings.base_url}/auth/openrouter/{user_id}",
+        )],
+        [InlineKeyboardButton("Use my own API key instead", callback_data="use_own_key")],
+    ])
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -23,6 +38,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "You're all set! Send me a receipt or ask a question about your expenses."
             )
             return
+        elif user.setup_step == "awaiting_ai_setup":
+            await update.message.reply_text(
+                "Almost there! Connect your AI to finish setup:",
+                reply_markup=_ai_setup_markup(user_id),
+            )
+            return
 
     await update.message.reply_text(
         "👋 Welcome to Peduni — your personal expense tracker.\n\n"
@@ -35,6 +56,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         ]]),
     )
+
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle inline keyboard button presses."""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    if query.data == "use_own_key":
+        async with SessionLocal() as session:
+            user = await session.get(User, user_id)
+            if user:
+                user.setup_step = "awaiting_provider"
+                await session.commit()
+
+        await query.edit_message_text(
+            "Which provider?\n"
+            "• anthropic\n"
+            "• openai\n"
+            "• gemini\n\n"
+            "Reply with the provider name."
+        )
 
 
 async def handle_setup_message(update: Update, context: ContextTypes.DEFAULT_TYPE, user: User, session) -> bool:
@@ -53,6 +96,13 @@ async def handle_setup_message(update: Update, context: ContextTypes.DEFAULT_TYP
                     url=f"{settings.base_url}/auth/google/{user.id}",
                 )
             ]]),
+        )
+        return True
+
+    if user.setup_step == "awaiting_ai_setup":
+        await update.message.reply_text(
+            "Please choose how to connect your AI:",
+            reply_markup=_ai_setup_markup(user.id),
         )
         return True
 
@@ -83,7 +133,7 @@ async def handle_setup_message(update: Update, context: ContextTypes.DEFAULT_TYP
         try:
             await update.message.delete()
         except Exception:
-            pass  # can't delete in some chat types
+            pass
 
         await update.message.reply_text(
             "✅ All set! Your API key is stored encrypted.\n\n"
@@ -106,14 +156,10 @@ async def change_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         current = PROVIDER_NAMES.get(user.ai_provider, user.ai_provider)
-        user.setup_step = "awaiting_provider"
+        user.setup_step = "awaiting_ai_setup"
         await session.commit()
 
     await update.message.reply_text(
-        f"Current AI provider: {current}\n\n"
-        "Which provider would you like to switch to?\n"
-        "• anthropic\n"
-        "• openai\n"
-        "• gemini\n\n"
-        "Reply with the provider name, then I'll ask for your new API key."
+        f"Current AI: {current}\n\nSwitch to a different AI:",
+        reply_markup=_ai_setup_markup(user_id),
     )
