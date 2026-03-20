@@ -64,6 +64,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
 
+    if query.data == "cancel_settings":
+        async with SessionLocal() as session:
+            user = await session.get(User, user_id)
+            if user:
+                user.setup_step = "ready"
+                await session.commit()
+        await query.edit_message_text("Cancelled. Nothing was changed.")
+        return
+
     if query.data == "use_own_key":
         async with SessionLocal() as session:
             user = await session.get(User, user_id)
@@ -159,7 +168,15 @@ async def change_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user.setup_step = "awaiting_ai_setup"
         await session.commit()
 
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton(
+            "Connect OpenRouter (recommended)",
+            url=f"{settings.base_url}/auth/openrouter/{user_id}",
+        )],
+        [InlineKeyboardButton("Use my own API key instead", callback_data="use_own_key")],
+        [InlineKeyboardButton("Cancel", callback_data="cancel_settings")],
+    ])
     await update.message.reply_text(
         f"Current AI: {current}\n\nSwitch to a different AI:",
-        reply_markup=_ai_setup_markup(user_id),
+        reply_markup=markup,
     )
