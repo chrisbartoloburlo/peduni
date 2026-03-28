@@ -88,31 +88,42 @@ async def google_callback(code: str, state: str):
         "scopes": list(creds.scopes) if creds.scopes else [],
     }
 
+    already_has_ai = False
     async with SessionLocal() as session:
         user = await session.get(User, telegram_user_id)
         if user:
             user.google_tokens = encrypt(json.dumps(token_data))
-            user.setup_step = "awaiting_ai_setup"
+            already_has_ai = bool(user.ai_api_key)
+            user.setup_step = "ready" if already_has_ai else "awaiting_ai_setup"
             await session.commit()
 
-    or_url = f"{settings.base_url}/auth/openrouter/{telegram_user_id}"
     async with httpx.AsyncClient() as client:
-        await client.post(
-            f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage",
-            json={
-                "chat_id": telegram_user_id,
-                "text": (
-                    "✅ Google Drive connected!\n\n"
-                    "Now let's connect your AI. OpenRouter gives you access to Claude, GPT-4, Gemini and more with one account:"
-                ),
-                "reply_markup": json.dumps({
-                    "inline_keyboard": [
-                        [{"text": "Connect OpenRouter (recommended)", "url": or_url}],
-                        [{"text": "Use my own API key instead", "callback_data": "use_own_key"}],
-                    ]
-                }),
-            },
-        )
+        if already_has_ai:
+            await client.post(
+                f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage",
+                json={
+                    "chat_id": telegram_user_id,
+                    "text": "✅ Google Drive reconnected! You're all set — send me a receipt.",
+                },
+            )
+        else:
+            or_url = f"{settings.base_url}/auth/openrouter/{telegram_user_id}"
+            await client.post(
+                f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage",
+                json={
+                    "chat_id": telegram_user_id,
+                    "text": (
+                        "✅ Google Drive connected!\n\n"
+                        "Now let's connect your AI. OpenRouter gives you access to Claude, GPT-4, Gemini and more with one account:"
+                    ),
+                    "reply_markup": json.dumps({
+                        "inline_keyboard": [
+                            [{"text": "Connect OpenRouter (recommended)", "url": or_url}],
+                            [{"text": "Use my own API key instead", "callback_data": "use_own_key"}],
+                        ]
+                    }),
+                },
+            )
 
     return HTMLResponse("""
         <html>
