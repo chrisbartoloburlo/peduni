@@ -1,10 +1,12 @@
 import asyncio
 from datetime import datetime
 
-from telegram import Update
+from google.auth.exceptions import RefreshError
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from ..ai import extract_expense
+from ..config import settings
 from ..db import Expense, SessionLocal, User
 from ..drive import ensure_root_folder, upload_file
 from .onboarding import handle_setup_message
@@ -59,15 +61,31 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             month_str = datetime.utcnow().strftime("%Y-%m")
 
         # Upload to Google Drive (blocking I/O — run in thread)
-        if not user.drive_folder_id:
-            user.drive_folder_id = await asyncio.get_event_loop().run_in_executor(
-                None, ensure_root_folder, user.google_tokens
-            )
-            await session.commit()
+        try:
+            if not user.drive_folder_id:
+                user.drive_folder_id = await asyncio.get_event_loop().run_in_executor(
+                    None, ensure_root_folder, user.google_tokens
+                )
+                await session.commit()
 
-        drive_file_id = await asyncio.get_event_loop().run_in_executor(
-            None, upload_file, user.google_tokens, user.drive_folder_id, month_str, filename, file_bytes, mime_type
-        )
+            drive_file_id = await asyncio.get_event_loop().run_in_executor(
+                None, upload_file, user.google_tokens, user.drive_folder_id, month_str, filename, file_bytes, mime_type
+            )
+        except RefreshError:
+            user.google_tokens = None
+            user.drive_folder_id = None
+            user.setup_step = "awaiting_google"
+            await session.commit()
+            await processing_msg.edit_text(
+                "Your Google Drive connection has expired. Please reconnect:",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        "Reconnect Google Drive",
+                        url=f"{settings.base_url}/auth/google/{user_id}",
+                    )
+                ]]),
+            )
+            return
 
         # Save to DB
         expense = Expense(
