@@ -15,7 +15,7 @@ from telegram.ext import (
 from .config import settings
 from .db import init_db
 from .handlers.documents import handle_document
-from .handlers.onboarding import start, change_settings, handle_callback
+from .handlers.onboarding import start, change_settings, handle_callback, help_command
 from .handlers.payments import buy_command, handle_pre_checkout, handle_successful_payment
 from .handlers.queries import handle_text
 from .web import web_app
@@ -32,6 +32,7 @@ async def main():
     bot = ApplicationBuilder().token(settings.telegram_token).build()
     bot.add_handler(CommandHandler("start", start))
     bot.add_handler(CommandHandler("settings", change_settings))
+    bot.add_handler(CommandHandler("help", help_command))
     bot.add_handler(CommandHandler("buy", buy_command))
     bot.add_handler(PreCheckoutQueryHandler(handle_pre_checkout))
     bot.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))

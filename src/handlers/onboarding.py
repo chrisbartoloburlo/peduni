@@ -191,6 +191,25 @@ async def handle_setup_message(update: Update, context: ContextTypes.DEFAULT_TYP
     return False
 
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "**Peduni — Expense Tracker**\n\n"
+        "**Getting started:**\n"
+        "Send me a photo, screenshot, or PDF of a receipt and I'll extract the details and save it to your Google Drive.\n\n"
+        "**Ask questions:**\n"
+        "Just type a question like:\n"
+        '• "How much did I spend on food this month?"\n'
+        '• "What are my biggest expenses?"\n'
+        '• "Total spending in March"\n\n'
+        "**Commands:**\n"
+        "/start — Set up your account\n"
+        "/settings — Change AI provider or API key\n"
+        "/buy — Buy credits (pay-per-use users)\n"
+        "/help — Show this message",
+        parse_mode="Markdown",
+    )
+
+
 async def change_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
