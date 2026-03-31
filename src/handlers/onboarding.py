@@ -73,6 +73,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
 
+    if query.data == "cancel_drive":
+        await query.edit_message_text("Cancelled. Nothing was changed.")
+        return
+
     if query.data == "cancel_settings":
         async with SessionLocal() as session:
             user = await session.get(User, user_id)
@@ -206,22 +210,24 @@ async def drive_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 f"Google Drive: {status}{folder}\n\n"
                 "To switch to a different Google account, tap below:",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton(
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(
                         "Reconnect Google Drive",
                         url=f"{settings.base_url}/auth/google/{user_id}",
-                    )
-                ]]),
+                    )],
+                    [InlineKeyboardButton("Cancel", callback_data="cancel_drive")],
+                ]),
             )
         else:
             await update.message.reply_text(
                 "Google Drive: not connected",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton(
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(
                         "Connect Google Drive",
                         url=f"{settings.base_url}/auth/google/{user_id}",
-                    )
-                ]]),
+                    )],
+                    [InlineKeyboardButton("Cancel", callback_data="cancel_drive")],
+                ]),
             )
 
 
