@@ -95,9 +95,9 @@ async def google_callback(code: str, state: str):
         else:
             or_url = f"{settings.base_url}/auth/openrouter/{telegram_user_id}"
             buttons = [
-                [{"text": "Connect OpenRouter (recommended)", "url": or_url}],
-                [{"text": "Pay per use with Telegram Stars", "callback_data": "pay_per_use"}],
-                [{"text": "Use my own API key instead", "callback_data": "use_own_key"}],
+                [{"text": "Pay per use with Telegram Stars (easiest)", "callback_data": "pay_per_use"}],
+                [{"text": "Connect OpenRouter", "url": or_url}],
+                [{"text": "Use my own API key", "callback_data": "use_own_key"}],
             ]
             await client.post(
                 f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage",

@@ -17,12 +17,9 @@ PROVIDER_NAMES = {
 
 def _ai_setup_markup(user_id: int) -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(
-            "Connect OpenRouter (recommended)",
-            url=f"{settings.base_url}/auth/openrouter/{user_id}",
-        )],
-        [InlineKeyboardButton("Pay per use with Telegram Stars", callback_data="pay_per_use")],
-        [InlineKeyboardButton("Use my own API key instead", callback_data="use_own_key")],
+        [InlineKeyboardButton("Pay per use with Telegram Stars (easiest)", callback_data="pay_per_use")],
+        [InlineKeyboardButton("Connect OpenRouter", url=f"{settings.base_url}/auth/openrouter/{user_id}")],
+        [InlineKeyboardButton("Use my own API key", callback_data="use_own_key")],
     ]
     return InlineKeyboardMarkup(buttons)
 
@@ -265,12 +262,9 @@ async def change_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await session.commit()
 
     markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton(
-            "Connect OpenRouter (recommended)",
-            url=f"{settings.base_url}/auth/openrouter/{user_id}",
-        )],
-        [InlineKeyboardButton("Pay per use with Telegram Stars", callback_data="pay_per_use")],
-        [InlineKeyboardButton("Use my own API key instead", callback_data="use_own_key")],
+        [InlineKeyboardButton("Pay per use with Telegram Stars (easiest)", callback_data="pay_per_use")],
+        [InlineKeyboardButton("Connect OpenRouter", url=f"{settings.base_url}/auth/openrouter/{user_id}")],
+        [InlineKeyboardButton("Use my own API key", callback_data="use_own_key")],
         [InlineKeyboardButton("Cancel", callback_data="cancel_settings")],
     ])
     await update.message.reply_text(
