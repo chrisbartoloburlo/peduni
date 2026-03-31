@@ -31,20 +31,6 @@ GOOGLE_CLIENT_CONFIG = {
     }
 }
 
-AI_SETUP_MESSAGE = {
-    "text": (
-        "✅ Google Drive connected!\n\n"
-        "Now let's connect your AI. OpenRouter gives you access to Claude, GPT-4, Gemini and more with one account:"
-    ),
-    "reply_markup": json.dumps({
-        "inline_keyboard": [
-            [{"text": "Connect OpenRouter (recommended)", "url": f"{settings.base_url}/auth/openrouter/{{user_id}}"}],
-            [{"text": "Use my own API key instead", "callback_data": "use_own_key"}],
-        ]
-    }),
-}
-
-
 # ── Google OAuth ──────────────────────────────────────────────────────────────
 
 def _make_google_flow(state: str | None = None) -> Flow:
@@ -93,7 +79,7 @@ async def google_callback(code: str, state: str):
         user = await session.get(User, telegram_user_id)
         if user:
             user.google_tokens = encrypt(json.dumps(token_data))
-            already_has_ai = bool(user.ai_api_key)
+            already_has_ai = bool(user.ai_api_key) or user.ai_provider == "hosted"
             user.setup_step = "ready" if already_has_ai else "awaiting_ai_setup"
             await session.commit()
 
@@ -108,20 +94,20 @@ async def google_callback(code: str, state: str):
             )
         else:
             or_url = f"{settings.base_url}/auth/openrouter/{telegram_user_id}"
+            buttons = [
+                [{"text": "Connect OpenRouter (recommended)", "url": or_url}],
+                [{"text": "Pay per use with Telegram Stars", "callback_data": "pay_per_use"}],
+                [{"text": "Use my own API key instead", "callback_data": "use_own_key"}],
+            ]
             await client.post(
                 f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage",
                 json={
                     "chat_id": telegram_user_id,
                     "text": (
                         "✅ Google Drive connected!\n\n"
-                        "Now let's connect your AI. OpenRouter gives you access to Claude, GPT-4, Gemini and more with one account:"
+                        "Now let's connect your AI. Choose one:"
                     ),
-                    "reply_markup": json.dumps({
-                        "inline_keyboard": [
-                            [{"text": "Connect OpenRouter (recommended)", "url": or_url}],
-                            [{"text": "Use my own API key instead", "callback_data": "use_own_key"}],
-                        ]
-                    }),
+                    "reply_markup": json.dumps({"inline_keyboard": buttons}),
                 },
             )
 

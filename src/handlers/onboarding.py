@@ -11,17 +11,20 @@ PROVIDER_NAMES = {
     "openai": "OpenAI",
     "gemini": "Google Gemini",
     "openrouter": "OpenRouter",
+    "hosted": "Pay per use",
 }
 
 
 def _ai_setup_markup(user_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
+    buttons = [
         [InlineKeyboardButton(
             "Connect OpenRouter (recommended)",
             url=f"{settings.base_url}/auth/openrouter/{user_id}",
         )],
+        [InlineKeyboardButton("Pay per use with Telegram Stars", callback_data="pay_per_use")],
         [InlineKeyboardButton("Use my own API key instead", callback_data="use_own_key")],
-    ])
+    ]
+    return InlineKeyboardMarkup(buttons)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -34,9 +37,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             session.add(user)
             await session.commit()
         elif user.setup_step == "ready":
-            await update.message.reply_text(
-                "You're all set! Send me a receipt or ask a question about your expenses."
-            )
+            if user.is_byok:
+                await update.message.reply_text(
+                    "You're all set! Send me a receipt or ask a question about your expenses."
+                )
+            else:
+                await update.message.reply_text(
+                    f"You're all set! You have {user.credits} credits.\n"
+                    "Send me a receipt or ask a question. Use /buy for more credits."
+                )
             return
         elif user.setup_step == "awaiting_ai_setup":
             await update.message.reply_text(
@@ -46,7 +55,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     await update.message.reply_text(
-        "👋 Welcome to Peduni — your personal expense tracker.\n\n"
+        "Welcome to Peduni — your personal expense tracker.\n\n"
         "I'll store your receipts in your own Google Drive and let you query them with AI.\n\n"
         "Let's start by connecting your Google Drive:",
         reply_markup=InlineKeyboardMarkup([[
@@ -71,6 +80,33 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user.setup_step = "ready"
                 await session.commit()
         await query.edit_message_text("Cancelled. Nothing was changed.")
+        return
+
+    if query.data == "pay_per_use":
+        if not settings.hosted_ai_api_key:
+            await query.edit_message_text(
+                "Pay per use is not available on this instance. "
+                "Please use OpenRouter or your own API key."
+            )
+            return
+
+        async with SessionLocal() as session:
+            user = await session.get(User, user_id)
+            if user:
+                user.ai_provider = "hosted"
+                user.ai_api_key = None
+                user.credits = max(user.credits, settings.free_credits)
+                user.setup_step = "ready"
+                await session.commit()
+                credits = user.credits
+
+        await query.edit_message_text(
+            f"✅ All set! You have {credits} free credits to start.\n\n"
+            "You can now:\n"
+            "• Send me receipts, invoices, or screenshots\n"
+            "• Ask questions like \"how much did I spend on food this month?\"\n\n"
+            "Use /buy to get more credits when you run out."
+        )
         return
 
     if query.data == "use_own_key":
@@ -173,6 +209,7 @@ async def change_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Connect OpenRouter (recommended)",
             url=f"{settings.base_url}/auth/openrouter/{user_id}",
         )],
+        [InlineKeyboardButton("Pay per use with Telegram Stars", callback_data="pay_per_use")],
         [InlineKeyboardButton("Use my own API key instead", callback_data="use_own_key")],
         [InlineKeyboardButton("Cancel", callback_data="cancel_settings")],
     ])

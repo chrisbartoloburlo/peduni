@@ -3,6 +3,7 @@ import json
 
 import litellm
 
+from .config import settings
 from .crypto import decrypt
 
 PROVIDER_MODELS = {
@@ -25,9 +26,17 @@ Return a JSON object with exactly these fields:
 Return only the JSON object, nothing else."""
 
 
-async def extract_expense(encrypted_api_key: str, provider: str, file_content: bytes, mime_type: str, filename: str) -> dict:
+def _resolve_key_and_model(encrypted_api_key: str | None, provider: str) -> tuple[str, str]:
+    """Return (api_key, model) for the given provider. Uses hosted key for 'hosted' provider."""
+    if provider == "hosted":
+        return settings.hosted_ai_api_key, settings.hosted_ai_model
     api_key = decrypt(encrypted_api_key)
     model = PROVIDER_MODELS.get(provider, "gpt-4o")
+    return api_key, model
+
+
+async def extract_expense(encrypted_api_key: str | None, provider: str, file_content: bytes, mime_type: str, filename: str) -> dict:
+    api_key, model = _resolve_key_and_model(encrypted_api_key, provider)
 
     if mime_type.startswith("image/"):
         b64 = base64.b64encode(file_content).decode()
@@ -39,7 +48,6 @@ async def extract_expense(encrypted_api_key: str, provider: str, file_content: b
             ],
         }]
     elif mime_type == "application/pdf":
-        # Extract text from PDF and pass as context
         import pdfplumber
         import io
         text = ""
@@ -66,9 +74,8 @@ async def extract_expense(encrypted_api_key: str, provider: str, file_content: b
     return json.loads(response.choices[0].message.content)
 
 
-async def answer_query(encrypted_api_key: str, provider: str, question: str, expenses: list[dict]) -> str:
-    api_key = decrypt(encrypted_api_key)
-    model = PROVIDER_MODELS.get(provider, "gpt-4o")
+async def answer_query(encrypted_api_key: str | None, provider: str, question: str, expenses: list[dict]) -> str:
+    api_key, model = _resolve_key_and_model(encrypted_api_key, provider)
 
     if not expenses:
         expense_context = "No expenses recorded yet."

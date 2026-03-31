@@ -3,12 +3,20 @@ import logging
 import os
 
 import uvicorn
-from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, MessageHandler, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    CallbackQueryHandler,
+    CommandHandler,
+    MessageHandler,
+    PreCheckoutQueryHandler,
+    filters,
+)
 
 from .config import settings
 from .db import init_db
 from .handlers.documents import handle_document
 from .handlers.onboarding import start, change_settings, handle_callback
+from .handlers.payments import buy_command, handle_pre_checkout, handle_successful_payment
 from .handlers.queries import handle_text
 from .web import web_app
 
@@ -24,6 +32,9 @@ async def main():
     bot = ApplicationBuilder().token(settings.telegram_token).build()
     bot.add_handler(CommandHandler("start", start))
     bot.add_handler(CommandHandler("settings", change_settings))
+    bot.add_handler(CommandHandler("buy", buy_command))
+    bot.add_handler(PreCheckoutQueryHandler(handle_pre_checkout))
+    bot.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
     bot.add_handler(CallbackQueryHandler(handle_callback))
     bot.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_document))
     bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
@@ -37,7 +48,7 @@ async def main():
     port = int(os.environ.get("PORT", 8000))
     config = uvicorn.Config(web_app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
-    logger.info("Starting web server on :8000")
+    logger.info(f"Starting web server on :{port}")
     await server.serve()
 
     # Graceful shutdown

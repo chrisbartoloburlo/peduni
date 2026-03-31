@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import BigInteger, DateTime, Numeric, String, Text
+from sqlalchemy import BigInteger, DateTime, Integer, Numeric, String, Text
 from .config import settings
 
 engine = create_async_engine(settings.database_url)
@@ -21,7 +21,12 @@ class User(Base):
     drive_folder_id: Mapped[str | None] = mapped_column(String(200), default=None)
     ai_provider: Mapped[str | None] = mapped_column(String(50), default=None)
     ai_api_key: Mapped[str | None] = mapped_column(Text, default=None)
+    credits: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    @property
+    def is_byok(self) -> bool:
+        return self.ai_provider != "hosted" and self.ai_api_key is not None
 
 
 class Expense(Base):

@@ -5,6 +5,7 @@ from sqlalchemy import select
 from ..ai import answer_query
 from ..db import Expense, SessionLocal, User
 from .onboarding import handle_setup_message
+from .payments import NO_CREDITS_MSG, check_and_deduct_credit
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -20,6 +21,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             consumed = await handle_setup_message(update, context, user, session)
             if not consumed:
                 await update.message.reply_text("Please complete setup first. Use /start.")
+            return
+
+        # Check credits for hosted users
+        if not await check_and_deduct_credit(user, session):
+            await update.message.reply_text(NO_CREDITS_MSG)
             return
 
         # Fetch user's expenses
