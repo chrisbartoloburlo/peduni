@@ -5,7 +5,7 @@ from sqlalchemy import select
 from ..ai import answer_query
 from ..db import Expense, SessionLocal, User
 from .onboarding import handle_setup_message
-from .payments import NO_CREDITS_MSG, check_and_deduct_credit
+from .payments import NO_CREDITS_MSG, check_credits, deduct_credit
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -24,9 +24,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Check credits for hosted users
-        if not await check_and_deduct_credit(user, session):
+        if not await check_credits(user):
             await update.message.reply_text(NO_CREDITS_MSG)
             return
+
+        # Deduct after successful query (below)
+        should_deduct = not user.is_byok
 
         # Fetch user's expenses
         result = await session.execute(
@@ -49,6 +52,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         answer = await answer_query(user.ai_api_key, user.ai_provider, update.message.text, expenses_data)
+        if should_deduct:
+            async with SessionLocal() as session:
+                user = await session.get(User, user_id)
+                await deduct_credit(user, session)
         await thinking_msg.edit_text(answer)
     except Exception as e:
         await thinking_msg.edit_text(f"Error contacting AI: {e}")

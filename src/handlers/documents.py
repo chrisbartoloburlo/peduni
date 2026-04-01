@@ -10,7 +10,7 @@ from ..config import settings
 from ..db import Expense, SessionLocal, User
 from ..drive import ensure_root_folder, upload_file
 from .onboarding import handle_setup_message
-from .payments import NO_CREDITS_MSG, check_and_deduct_credit
+from .payments import NO_CREDITS_MSG, check_credits, deduct_credit
 
 MIME_FALLBACK = "application/octet-stream"
 
@@ -29,7 +29,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         # Check credits for hosted users
-        if not await check_and_deduct_credit(user, session):
+        if not await check_credits(user):
             await update.message.reply_text(NO_CREDITS_MSG)
             return
 
@@ -106,6 +106,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             raw_text=data.get("raw_text"),
         )
         session.add(expense)
+        await deduct_credit(user, session)
         await session.commit()
 
     # Build confirmation message

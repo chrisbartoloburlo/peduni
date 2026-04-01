@@ -74,42 +74,33 @@ async def google_callback(code: str, state: str):
         "scopes": list(creds.scopes) if creds.scopes else [],
     }
 
-    already_has_ai = False
     async with SessionLocal() as session:
         user = await session.get(User, telegram_user_id)
         if user:
             user.google_tokens = encrypt(json.dumps(token_data))
-            already_has_ai = bool(user.ai_api_key) or user.ai_provider == "hosted"
-            user.setup_step = "ready" if already_has_ai else "awaiting_ai_setup"
+            # Default new users to pay-per-use with free credits
+            if not user.ai_provider:
+                user.ai_provider = "hosted"
+                user.credits = max(user.credits, settings.free_credits)
+            user.setup_step = "ready"
             await session.commit()
+            credits = user.credits
+            is_new = user.ai_provider == "hosted" and not user.ai_api_key
 
     async with httpx.AsyncClient() as client:
-        if already_has_ai:
-            await client.post(
-                f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage",
-                json={
-                    "chat_id": telegram_user_id,
-                    "text": "✅ Google Drive reconnected! You're all set — send me a receipt.",
-                },
+        if is_new:
+            text = (
+                f"✅ You're all set! Google Drive connected.\n\n"
+                f"You have {credits} free credits to get started.\n"
+                "Send me a receipt, invoice, or screenshot to track an expense.\n\n"
+                "Use /settings anytime to switch to your own API key."
             )
         else:
-            or_url = f"{settings.base_url}/auth/openrouter/{telegram_user_id}"
-            buttons = [
-                [{"text": "Pay per use with Telegram Stars (easiest)", "callback_data": "pay_per_use"}],
-                [{"text": "Connect OpenRouter", "url": or_url}],
-                [{"text": "Use my own API key", "callback_data": "use_own_key"}],
-            ]
-            await client.post(
-                f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage",
-                json={
-                    "chat_id": telegram_user_id,
-                    "text": (
-                        "✅ Google Drive connected!\n\n"
-                        "Now let's connect your AI. Choose one:"
-                    ),
-                    "reply_markup": json.dumps({"inline_keyboard": buttons}),
-                },
-            )
+            text = "✅ Google Drive reconnected! You're all set — send me a receipt."
+        await client.post(
+            f"https://api.telegram.org/bot{settings.telegram_token}/sendMessage",
+            json={"chat_id": telegram_user_id, "text": text},
+        )
 
     return HTMLResponse("""
         <html>

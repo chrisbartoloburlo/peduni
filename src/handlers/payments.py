@@ -67,21 +67,21 @@ async def handle_successful_payment(update: Update, context: ContextTypes.DEFAUL
     )
 
 
-async def check_and_deduct_credit(user, session) -> bool:
+async def check_credits(user) -> bool:
     """
     Check if user can make an AI call. BYOK users always pass.
-    Hosted users need credits. Deducts 1 credit if available.
-    Returns True if the call is allowed.
+    Hosted users need at least 1 credit.
     """
     if user.is_byok:
         return True
+    return user.credits > 0
 
-    if user.credits <= 0:
-        return False
 
-    user.credits -= 1
-    await session.commit()
-    return True
+async def deduct_credit(user, session) -> None:
+    """Deduct 1 credit from a hosted user. Call after a successful AI operation."""
+    if not user.is_byok:
+        user.credits -= 1
+        await session.commit()
 
 
 NO_CREDITS_MSG = (

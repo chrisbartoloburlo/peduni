@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     hosted_ai_api_key: str | None = None
 
     # Free credits given to new "pay per use" users
-    free_credits: int = 5
+    free_credits: int = 500
 
     model_config = {"env_file": ".env"}
 

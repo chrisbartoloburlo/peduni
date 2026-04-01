@@ -45,16 +45,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             return
         elif user.setup_step == "awaiting_ai_setup":
+            # Legacy users stuck in AI setup — auto-set to hosted
+            user.ai_provider = "hosted"
+            user.credits = max(user.credits, settings.free_credits)
+            user.setup_step = "ready"
+            await session.commit()
             await update.message.reply_text(
-                "Almost there! Connect your AI to finish setup:",
-                reply_markup=_ai_setup_markup(user_id),
+                f"✅ You're all set! You have {user.credits} credits.\n"
+                "Send me a receipt or ask a question. Use /buy for more credits."
             )
             return
 
     await update.message.reply_text(
         "Welcome to Peduni — your personal expense tracker.\n\n"
-        "I'll store your receipts in your own Google Drive and let you query them with AI.\n\n"
-        "Let's start by connecting your Google Drive:",
+        "Connect your Google Drive and you're good to go. You get 500 free credits to start!",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton(
                 "Connect Google Drive",
@@ -86,8 +90,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "pay_per_use":
         if not settings.hosted_ai_api_key:
             await query.edit_message_text(
-                "Pay per use is not available on this instance. "
-                "Please use OpenRouter or your own API key."
+                "Pay per use is not available right now. Please choose another option:",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Connect OpenRouter", url=f"{settings.base_url}/auth/openrouter/{user_id}")],
+                    [InlineKeyboardButton("Use my own API key", callback_data="use_own_key")],
+                ]),
             )
             return
 
@@ -146,9 +153,14 @@ async def handle_setup_message(update: Update, context: ContextTypes.DEFAULT_TYP
         return True
 
     if user.setup_step == "awaiting_ai_setup":
+        # Auto-set to hosted for any user stuck here
+        user.ai_provider = "hosted"
+        user.credits = max(user.credits, settings.free_credits)
+        user.setup_step = "ready"
+        await session.commit()
         await update.message.reply_text(
-            "Please choose how to connect your AI:",
-            reply_markup=_ai_setup_markup(user.id),
+            f"✅ You're all set! You have {user.credits} credits.\n"
+            "Send me a receipt or ask a question. Use /buy for more credits."
         )
         return True
 
